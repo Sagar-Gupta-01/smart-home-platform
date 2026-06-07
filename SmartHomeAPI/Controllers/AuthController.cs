@@ -52,7 +52,7 @@ public class AuthController : ControllerBase
         var user = _context.Users.FirstOrDefault(x => x.Email == login.Email);
 
         if (user == null || !PasswordHelper.Verify(login.PasswordHash, user.PasswordHash))
-            return Unauthorized("Invalid credentials");
+            return Unauthorized();
 
         var token = _auth.GenerateToken(user);
         var refreshToken = _auth.GenerateRefreshToken();
@@ -60,16 +60,38 @@ public class AuthController : ControllerBase
         user.RefreshTokens.Add(refreshToken);
         _context.SaveChanges();
 
-        return Ok(new
+
+        // ✅ Access token cookie
+        Response.Cookies.Append("jwt", token, new CookieOptions
         {
-            token,
-            refreshToken = refreshToken.Token
+
+            HttpOnly = true,
+            Secure = false,
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTime.UtcNow.AddMinutes(15)
+
         });
+
+
+        // ✅ Refresh token cookie
+        Response.Cookies.Append("refreshToken", refreshToken.Token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = false,
+            SameSite = SameSiteMode.Lax,
+            Expires = refreshToken.Expires
+        });
+
+        return Ok(new { message = "Login successful" });
     }
 
     [HttpPost("refresh")]
-    public IActionResult Refresh(string refreshToken)
+    public IActionResult Refresh()
     {
+        var refreshToken = Request.Cookies["refreshToken"];
+        if (string.IsNullOrEmpty(refreshToken))
+            return Unauthorized();
+
         var user = _context.Users
             .Include(u => u.RefreshTokens)
             .FirstOrDefault(u => u.RefreshTokens.Any(t => t.Token == refreshToken));
@@ -77,13 +99,13 @@ public class AuthController : ControllerBase
         if (user == null)
             return Unauthorized();
 
-        var token = user.RefreshTokens.First(t => t.Token == refreshToken);
+        var tokenRecord = user.RefreshTokens.First(t => t.Token == refreshToken);
 
-        if (token.IsExpired || token.IsRevoked)
+        if (tokenRecord.IsExpired || tokenRecord.IsRevoked)
             return Unauthorized();
 
-        // Rotate token (IMPORTANT ✅)
-        token.IsRevoked = true;
+        // ✅ Rotate refresh token
+        tokenRecord.IsRevoked = true;
 
         var newAccessToken = _auth.GenerateToken(user);
         var newRefreshToken = _auth.GenerateRefreshToken();
@@ -91,10 +113,39 @@ public class AuthController : ControllerBase
         user.RefreshTokens.Add(newRefreshToken);
         _context.SaveChanges();
 
-        return Ok(new
+        // ✅ Set new cookies
+        Response.Cookies.Append("jwt", newAccessToken, new CookieOptions
         {
-            token = newAccessToken,
-            refreshToken = newRefreshToken.Token
+            HttpOnly = true,
+            Secure = false,
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTime.UtcNow.AddMinutes(15)
         });
+
+        Response.Cookies.Append("refreshToken", newRefreshToken.Token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = false,
+            SameSite = SameSiteMode.Lax,
+            Expires = newRefreshToken.Expires
+        });
+
+        return Ok(new { message = "Token refreshed" });
+    }
+
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = false, // change to true in production
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTime.UtcNow.AddDays(-1) // ✅ expire immediately
+        };
+
+        Response.Cookies.Append("jwt", "", cookieOptions);
+
+        return Ok(new { message = "Logged out successfully" });
     }
 }

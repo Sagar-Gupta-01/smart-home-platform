@@ -151,4 +151,5 @@ C:\Users\sagargu\Downloads\Projects\SmartHome\SmartHOmeAPI\bin\Debug\net8.0\Micr
 C:\Users\sagargu\Downloads\Projects\SmartHome\SmartHOmeAPI\bin\Debug\net8.0\Microsoft.Extensions.ObjectPool.dll
 C:\Users\sagargu\Downloads\Projects\SmartHome\SmartHOmeAPI\bin\Debug\net8.0\Newtonsoft.Json.dll
 C:\Users\sagargu\Downloads\Projects\SmartHome\SmartHOmeAPI\bin\Debug\net8.0\System.Net.WebSockets.WebSocketProtocol.dll
+C:\Users\sagargu\Downloads\Projects\SmartHome\SmartHomeAPI\obj\Debug\net8.0\SmartHomeAPI.sourcelink.json
 C:\Users\sagargu\Downloads\Projects\SmartHome\SmartHomeAPI\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
