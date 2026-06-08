@@ -1,5 +1,5 @@
 import { useState } from "react";
-import axios from "axios";
+import api from "../services/api";
 import { useNavigate } from "react-router-dom";
 
 function Login() {
@@ -9,17 +9,11 @@ function Login() {
 
     const handleLogin = async () => {
         try {
-            await axios.post(
-                `${import.meta.env.VITE_API_BASE_URL}/api/Auth/login`,
-                {
-                    email: email,
-                    passwordHash: password
-                },
-                {
-                    withCredentials: true
-                }
-            );           
-
+            
+            await api.post("/api/Auth/login", {
+            email,
+            passwordHash: password
+            });
             alert("Login successful");
             navigate("/dashboard");
         } catch (error) {

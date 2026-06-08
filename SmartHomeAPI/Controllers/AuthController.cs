@@ -4,6 +4,7 @@ using SmartHomeAPI.Models;
 using SmartHomeAPI.Services;
 using SmartHomeAPI.Helpers;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 
 namespace SmartHomeAPI.Controllers;
 
@@ -24,7 +25,9 @@ public class AuthController : ControllerBase
     public IActionResult Register(User user)
     {
         user.PasswordHash = PasswordHelper.Hash(user.PasswordHash);
-        
+
+        Log.Information("API hit for new user registration");
+
         // ✅ If user is Client → create Client entity
         if (user.Role == "Client")
         {
@@ -35,12 +38,13 @@ public class AuthController : ControllerBase
 
             _context.Clients.Add(client);
             _context.SaveChanges();
-
+            Log.Information("New Client registered with email id: {Email}", user.Email);
             user.ClientId = client.Id; // 🔗 link user to client
         }
 
         _context.Users.Add(user);
         _context.SaveChanges();
+        Log.Information("New user added with email id: {Email}", user.Email);
 
         return Ok(user);
 
@@ -50,12 +54,23 @@ public class AuthController : ControllerBase
     public IActionResult Login(User login)
     {
         var user = _context.Users.FirstOrDefault(x => x.Email == login.Email);
+        Log.Information("User trying to login with username: {Email}", login.Email);
 
         if (user == null || !PasswordHelper.Verify(login.PasswordHash, user.PasswordHash))
+        {
+            Log.Warning("UnAuthorised login attempt by username: {Email}", login.Email);
             return Unauthorized();
+        }
+
+        // The login request carries no jwt cookie yet, so the middleware seeds the
+        // user id as Anonymous. Now that we know the user, record it so the enricher
+        // includes it on the remaining log lines (and the middleware's completion log).
+        HttpContext.Items["UserId"] = user.Id.ToString();
 
         var token = _auth.GenerateToken(user);
         var refreshToken = _auth.GenerateRefreshToken();
+
+        Log.Information("Auth and refresher token generated for {Email}", user.Email);
 
         user.RefreshTokens.Add(refreshToken);
         _context.SaveChanges();
@@ -81,7 +96,7 @@ public class AuthController : ControllerBase
             SameSite = SameSiteMode.Lax,
             Expires = refreshToken.Expires
         });
-
+        Log.Information("Login successful for user {Email}", user.Email);
         return Ok(new { message = "Login successful" });
     }
 
@@ -145,7 +160,7 @@ public class AuthController : ControllerBase
         };
 
         Response.Cookies.Append("jwt", "", cookieOptions);
-
+        Log.Information("User logged out");
         return Ok(new { message = "Logged out successfully" });
     }
 }

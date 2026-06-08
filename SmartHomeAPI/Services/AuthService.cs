@@ -29,7 +29,7 @@ public class AuthService
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
             new Claim(ClaimTypes.Role, user.Role),
-            new Claim("ClientId", user.ClientId?.ToString() ?? ""),
+            new Claim("ClientId", user.ClientId?.ToString() ?? ""), 
         };
 
         var token = new JwtSecurityToken(
