@@ -26,7 +26,7 @@ api.interceptors.response.use(
 
         // ✅ Retry original request after refresh
         return api(originalRequest);
-      } catch (err) {
+      } catch {
         // ❌ Refresh failed → redirect to login
         window.location.href = "/login";
       }

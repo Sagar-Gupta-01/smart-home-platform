@@ -21,6 +21,17 @@ public class LocationsController : ControllerBase
     [HttpPost]
     public IActionResult Create(Location location)
     {
+        location.Id = 0; // never trust an id from the body
+
+        // A Client/Member carries their tenant in the "ClientId" claim and may only
+        // create locations inside their own tenant. A SuperAdmin has no ClientId claim
+        // and manages all tenants, so the body value is honoured for them.
+        var clientIdClaim = User.FindFirst("ClientId")?.Value;
+        if (int.TryParse(clientIdClaim, out var clientId))
+        {
+            location.ClientId = clientId;
+        }
+
         _context.Locations.Add(location);
         _context.SaveChanges();
 
@@ -53,7 +64,7 @@ public class LocationsController : ControllerBase
             x.UserId == userId && x.LocationId == locationId);
 
         if (!hasAccess) return Forbid();
-
+        
         var result = _context.Locations
             .Where(l => l.Id == locationId)
             .Select(l => new

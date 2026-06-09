@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using SmartHomeAPI.Data;
 using SmartHomeAPI.Services;
 using System.Text;
+using System.Threading.RateLimiting;
 using Serilog;
 using SmartHomeAPI.Middleware;
 using SmartHomeAPI.Logging;
@@ -91,6 +92,23 @@ builder.Services.AddCors(options =>
         });
 });
 builder.Services.AddAuthorization();
+
+// Rate limiting — throttle unauthenticated auth endpoints (login/register) per
+// client IP to blunt credential brute-forcing. Applied via [EnableRateLimiting("auth")].
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
+
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddSignalR();
 builder.Services.AddControllers();
@@ -131,6 +149,7 @@ var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("AllowFrontend");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<CorrelationIdMiddleware>();

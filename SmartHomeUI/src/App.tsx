@@ -31,7 +31,10 @@ const navigate = useNavigate();
     <Routes>
       <Route path="/" element={<Login />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/dashboard" element={<Dashboard />} />      
+      <Route path="/devices" element={<div>Devices Page</div>} />
+      <Route path="/settings" element={<div>Settings Page</div>} />
+
     </Routes>
   );
 }

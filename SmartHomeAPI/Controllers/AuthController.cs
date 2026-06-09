@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SmartHomeAPI.Data;
 using SmartHomeAPI.Models;
 using SmartHomeAPI.Services;
@@ -21,35 +22,43 @@ public class AuthController : ControllerBase
         _auth = auth;
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("register")]
     public IActionResult Register(User user)
     {
-        user.PasswordHash = PasswordHelper.Hash(user.PasswordHash);
-
         Log.Information("API hit for new user registration");
 
-        // ✅ If user is Client → create Client entity
-        if (user.Role == "Client")
-        {
-            var client = new Client
-            {
-                Name = user.Email // or any naming logic
-            };
+        // Public self-registration always provisions a new Client (tenant) account.
+        // The role and identifiers are never trusted from the request body — otherwise
+        // a caller could register themselves as "SuperAdmin". SuperAdmin/Member accounts
+        // are created through the authenticated Users endpoint instead.
+        user.Id = 0;
+        user.ClientId = null;
+        user.Role = "Client";
+        user.RefreshTokens = new();
+        user.PasswordHash = PasswordHelper.Hash(user.PasswordHash);
 
-            _context.Clients.Add(client);
-            _context.SaveChanges();
-            Log.Information("New Client registered with email id: {Email}", user.Email);
-            user.ClientId = client.Id; // 🔗 link user to client
-        }
+        // 🔗 Create the Client entity and link this user to it
+        var client = new Client
+        {
+            Name = user.Email // or any naming logic
+        };
+
+        _context.Clients.Add(client);
+        _context.SaveChanges();
+        Log.Information("New Client registered with email id: {Email}", user.Email);
+        user.ClientId = client.Id;
 
         _context.Users.Add(user);
         _context.SaveChanges();
         Log.Information("New user added with email id: {Email}", user.Email);
 
-        return Ok(user);
+        // Return a DTO — never echo PasswordHash or the refresh-token collection back
+        return Ok(new { user.Id, user.Email, user.Role, user.ClientId });
 
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("login")]
     public IActionResult Login(User login)
     {
@@ -81,8 +90,8 @@ public class AuthController : ControllerBase
         {
 
             HttpOnly = true,
-            Secure = false,
-            SameSite = SameSiteMode.Lax,
+            Secure = true,                // required for SameSite=None
+            SameSite = SameSiteMode.None, // sent on cross-site requests from the SPA
             Expires = DateTime.UtcNow.AddMinutes(15)
 
         });
@@ -92,8 +101,8 @@ public class AuthController : ControllerBase
         Response.Cookies.Append("refreshToken", refreshToken.Token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = false,
-            SameSite = SameSiteMode.Lax,
+            Secure = true,                // required for SameSite=None
+            SameSite = SameSiteMode.None, // sent on cross-site requests from the SPA
             Expires = refreshToken.Expires
         });
         Log.Information("Login successful for user {Email}", user.Email);
@@ -132,16 +141,16 @@ public class AuthController : ControllerBase
         Response.Cookies.Append("jwt", newAccessToken, new CookieOptions
         {
             HttpOnly = true,
-            Secure = false,
-            SameSite = SameSiteMode.Lax,
+            Secure = true,                // required for SameSite=None
+            SameSite = SameSiteMode.None, // sent on cross-site requests from the SPA
             Expires = DateTime.UtcNow.AddMinutes(15)
         });
 
         Response.Cookies.Append("refreshToken", newRefreshToken.Token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = false,
-            SameSite = SameSiteMode.Lax,
+            Secure = true,                // required for SameSite=None
+            SameSite = SameSiteMode.None, // sent on cross-site requests from the SPA
             Expires = newRefreshToken.Expires
         });
 
@@ -151,15 +160,33 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public IActionResult Logout()
     {
+        // ✅ Revoke the refresh token server-side so a captured token can't be
+        // reused after logout (the cookie alone expiring is not enough).
+        var refreshToken = Request.Cookies["refreshToken"];
+        if (!string.IsNullOrEmpty(refreshToken))
+        {
+            var user = _context.Users
+                .Include(u => u.RefreshTokens)
+                .FirstOrDefault(u => u.RefreshTokens.Any(t => t.Token == refreshToken));
+
+            var tokenRecord = user?.RefreshTokens.FirstOrDefault(t => t.Token == refreshToken);
+            if (tokenRecord != null && !tokenRecord.IsRevoked)
+            {
+                tokenRecord.IsRevoked = true;
+                _context.SaveChanges();
+            }
+        }
+
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = false, // change to true in production
-            SameSite = SameSiteMode.Lax,
+            Secure = true,                // must match the login cookie attributes
+            SameSite = SameSiteMode.None, // so the browser overwrites/expires it
             Expires = DateTime.UtcNow.AddDays(-1) // ✅ expire immediately
         };
 
         Response.Cookies.Append("jwt", "", cookieOptions);
+        Response.Cookies.Append("refreshToken", "", cookieOptions); // ✅ also clear the refresh cookie
         Log.Information("User logged out");
         return Ok(new { message = "Logged out successfully" });
     }

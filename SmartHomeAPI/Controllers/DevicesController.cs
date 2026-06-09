@@ -57,7 +57,10 @@ public class DevicesController : ControllerBase
         device.IsOn = !device.IsOn;
         _context.SaveChanges();
 
-        await _hub.Clients.All.SendAsync("ReceiveDeviceUpdate", device);
+        // Only notify clients with access to this device's location (see DeviceHub),
+        // rather than broadcasting to every connected user across all tenants.
+        await _hub.Clients.Group(DeviceHub.LocationGroup(room.LocationId))
+            .SendAsync("ReceiveDeviceUpdate", device);
 
         return Ok(device);
     }

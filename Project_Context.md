@@ -121,7 +121,11 @@ Client
 - JWT generation
 - HttpOnly cookie storage
 - Refresh token rotation
+- Refresh token revoked server-side on logout (both cookies cleared)
 - Secure password hashing (BCrypt)
+- Rate limiting on `login` / `register` (brute-force protection)
+- Self-registration restricted to **Client** tenants — role/ClientId from the request body are never trusted (no privilege escalation)
+- Auth responses return DTOs only — `PasswordHash` and refresh tokens are never echoed back
 
 ---
 
@@ -161,6 +165,11 @@ backend validates refreshToken →
 - Role-based authorization ✅
 - Location-based access control ✅
 - Device access linked to location ownership ✅
+- **DeviceConfiguration** access gated by location ownership ✅
+- **Location / User creation scoped to the caller's tenant** (ClientId taken from the JWT claim, not the body) ✅
+- Registration cannot self-assign privileged roles ✅
+- Refresh token revoked server-side on logout ✅
+- Rate limiting on auth endpoints (5 req/min per IP → HTTP 429) ✅
 - Multi-tenant isolation ✅
 - No client-side token storage ✅
 
@@ -180,6 +189,12 @@ ReceiveDeviceUpdate
 
 Triggered when:
 - Device state changes (toggle)
+
+### Scoping (multi-tenant safe):
+
+- The hub requires authentication (`[Authorize]`, JWT read from the cookie)
+- On connect, each client auto-joins a `location-{id}` group for every location they have access to
+- Device updates are broadcast **only to the owning location's group** — never to all connected clients across tenants
 
 ---
 ## 📊 Logging System (NEW ✅)
@@ -238,9 +253,9 @@ Status + duration logged
 ## 🌐 API Endpoints
 
 ### Auth
-- POST /api/Auth/register
-- POST /api/Auth/login
-- POST /api/Auth/logout
+- POST /api/Auth/register  *(rate-limited; always creates a Client tenant)*
+- POST /api/Auth/login      *(rate-limited)*
+- POST /api/Auth/logout     *(revokes the refresh token)*
 - POST /api/Auth/refresh
 
 ---
@@ -297,18 +312,20 @@ Status + duration logged
 - React + TypeScript
 - Vite
 - Axios
+- Tailwind CSS (v4)
 
 ---
 
 ### Implemented:
 
-- Login page
-- API integration
+- Login page with client-side validation + inline error messages
+- Loading states and graceful error UI (no blocking `alert()` popups)
+- Friendly handling of rate-limit (HTTP 429) responses on login
 - Cookie-based auth
 - Routing (react-router)
-- Axios interceptor
-- API integration
-- Dashboard basic setup
+- Axios interceptor (401 → silent refresh → retry)
+- Dashboard: location selector, rooms & devices, device toggle with optimistic update
+- Empty/error states for locations and device data
 
 ---
 
@@ -332,6 +349,11 @@ axios.defaults.withCredentials = true;
 
 context.Request.Cookies["jwt"]
 
+✅ Rate limiting (fixed window, per IP):
+
+5 requests / minute on the "auth" policy → HTTP 429
+Applied to /api/Auth/login and /api/Auth/register
+
 ---
 
 ### Frontend
@@ -339,7 +361,7 @@ context.Request.Cookies["jwt"]
 ✅ Env variable:
 
 
-VITE_API_BASE_URL=http://localhost:5230
+VITE_API_BASE_URL=https://localhost:44305
 
 ---
 
@@ -364,10 +386,12 @@ VITE_API_BASE_URL=http://localhost:5230
 
 ## 🧭 Next Steps
 
-- Dashboard UI (locations, rooms, devices)
-- Device control components
-- SignalR integration in UI
-- UI/UX improvements
+- SignalR integration in the UI (live device updates via `location-{id}` groups — hub side is ready)
+- Build out the `/devices` and `/settings` pages (currently placeholders)
+- React error boundary + loading skeletons
+- Behind a reverse proxy, add forwarded-headers support so rate limiting sees the real client IP
+- Remove the unused `Room.UserId` field
+- General UI/UX polish
 
 ---
 
@@ -379,6 +403,9 @@ VITE_API_BASE_URL=http://localhost:5230
 - Multi-tenant isolation is critical
 - Refresh token rotation is already implemented
 - Logging system is fully structured and production-ready
+- `Jwt:Key` is stored in **dotnet user-secrets** (see `UserSecretsId` in the .csproj) — do NOT commit it to appsettings
+- Public `register` only creates Client tenants; SuperAdmin/Member accounts are provisioned via the authenticated `Users` endpoint
+- When adding endpoints, derive `ClientId` from the JWT claim — never trust it from the request body
 ---
 
 ## 🔗 Repository
